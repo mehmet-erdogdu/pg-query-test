@@ -1,12 +1,17 @@
 ﻿using System.ComponentModel.DataAnnotations.Schema;
+using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using Testcontainers.MsSql;
 
 Console.WriteLine("Hello, World!");
 
-const string conStr = "server=localhost:5432;database=testpg;user id=postgres;password=123456;";
+var msSqlContainer = new MsSqlBuilder().Build();
+await msSqlContainer.StartAsync();
+var conStr = msSqlContainer.GetConnectionString();
+
 var optionsBuilder = new DbContextOptionsBuilder<PGDbContext>();
-optionsBuilder.UseNpgsql(PGDbContext.CreateDataSource(conStr));
+optionsBuilder.UseSqlServer(conStr);
 var context = new PGDbContext(optionsBuilder.Options);
 context.Database.EnsureCreated();
 context.Database.Migrate();
@@ -39,6 +44,8 @@ var testQuery = context.TestTable
 
 Console.WriteLine("Done!");
 
+Debugger.Break();
+
 public class PGDbContext : DbContext
 {
     public DbSet<TestTable> TestTable { get; set; }
@@ -47,12 +54,18 @@ public class PGDbContext : DbContext
     {
     }
 
-    public static NpgsqlDataSource CreateDataSource(string connectionString = null)
+    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
+        => optionsBuilder.LogTo(Console.WriteLine);
+    
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        var dataSourceBuilder = new NpgsqlDataSourceBuilder(connectionString);
-        dataSourceBuilder.EnableDynamicJson();
-        // dataSourceBuilder.UseJsonNet();
-        return dataSourceBuilder.Build();
+        modelBuilder.Entity<TestTable>()
+            .OwnsOne(category => category.JsonData, b =>
+            {
+                b.OwnsMany(c => c.Data);
+                b.ToJson();
+            });
+        base.OnModelCreating(modelBuilder);
     }
 }
 
@@ -61,8 +74,6 @@ public class TestTable
 {
     public int Id { get; set; }
     public string Name { get; set; }
-
-    [Column(TypeName = "jsonb")]
     public TestTableJson JsonData { get; set; }
 }
 
