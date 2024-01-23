@@ -50,7 +50,7 @@ public class PGDbContext : DbContext
     public static NpgsqlDataSource CreateDataSource(string connectionString = null)
     {
         var dataSourceBuilder = new NpgsqlDataSourceBuilder(connectionString);
-        // dataSourceBuilder.EnableDynamicJson();
+        dataSourceBuilder.EnableDynamicJson();
         // dataSourceBuilder.UseJsonNet();
         return dataSourceBuilder.Build();
     }
