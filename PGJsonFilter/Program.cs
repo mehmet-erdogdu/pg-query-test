@@ -1,6 +1,14 @@
 ﻿using System.ComponentModel.DataAnnotations.Schema;
+using System.Diagnostics;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Converters;
 using Npgsql;
+using JsonConverter = Newtonsoft.Json.JsonConverter;
+using JsonSerializer = Newtonsoft.Json.JsonSerializer;
 
 Console.WriteLine("Hello, World!");
 
@@ -11,26 +19,26 @@ var context = new PGDbContext(optionsBuilder.Options);
 context.Database.EnsureCreated();
 context.Database.Migrate();
 
-if (!context.TestTable.Any())
-{
-    context.TestTable.Add(
-        new TestTable
+var old = context.TestTable.ToList();
+context.TestTable.RemoveRange(old);
+
+context.TestTable.Add(
+    new TestTable
+    {
+        Name = "test",
+        JsonData = new TestTableJson
         {
-            Name = "test",
-            JsonData = new TestTableJson
-            {
-                Code = "x",
-                Data =
-                [
-                    new JsonData { Name = "x", Value = "1" },
-                    new JsonData { Name = "y", Value = "2" },
-                    new JsonData { Name = "z", Value = "3" }
-                ]
-            }
+            Code = "x",
+            Data =
+            [
+                new JsonData { Name = "x", Value = "1", TestIds = [1, 2, 3] },
+                new JsonData { Name = "y", Value = "2", TestIds = [1, 2, 3] },
+                new JsonData { Name = "z", Value = "3" }
+            ]
         }
-    );
-    context.SaveChanges();
-}
+    }
+);
+context.SaveChanges();
 
 //this query not working without all data fetch
 var testQuery = context.TestTable
@@ -38,6 +46,8 @@ var testQuery = context.TestTable
         .Any(y => y.Name == "x"));
 
 Console.WriteLine("Done!");
+
+Debugger.Break();
 
 public class PGDbContext : DbContext
 {
@@ -50,12 +60,31 @@ public class PGDbContext : DbContext
     public static NpgsqlDataSource CreateDataSource(string connectionString = null)
     {
         var dataSourceBuilder = new NpgsqlDataSourceBuilder(connectionString);
+        dataSourceBuilder.MapEnum<RowStatus>();
         dataSourceBuilder.EnableDynamicJson();
-        // dataSourceBuilder.UseJsonNet();
         return dataSourceBuilder.Build();
+    }
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.HasPostgresEnum<RowStatus>();
+        modelBuilder.Entity<TestTable>()
+            .OwnsOne(t => t.JsonData, x =>
+            {
+                x.ToJson();
+                x.OwnsMany(t => t.Data)
+                    .Property(t => t.RowStatus).HasConversion(new EnumToStringConverter<RowStatus>());
+            });
+        base.OnModelCreating(modelBuilder);
     }
 }
 
+public enum RowStatus
+{
+    active = 0,
+    passive = 1,
+    deleted = 2,
+}
 
 public class TestTable
 {
@@ -64,11 +93,15 @@ public class TestTable
 
     [Column(TypeName = "jsonb")]
     public TestTableJson JsonData { get; set; }
+
+    public RowStatus RowStatus { get; set; } = RowStatus.active;
 }
 
 public class TestTableJson
 {
     public string Code { get; set; }
+
+    public RowStatus? RowStatus { get; set; }
     public List<JsonData> Data { get; set; }
 }
 
@@ -76,4 +109,9 @@ public class JsonData
 {
     public string Name { get; set; }
     public string Value { get; set; }
+    public DateTime Date1 { get; set; } = DateTime.UtcNow;
+    public DateTime? Date2 { get; set; }
+
+    public List<int> TestIds { get; set; }
+    public RowStatus? RowStatus { get; set; }
 }
