@@ -16,13 +16,14 @@ const string conStr = "server=localhost:5432;database=testpg;user id=postgres;pa
 var optionsBuilder = new DbContextOptionsBuilder<PGDbContext>();
 optionsBuilder.UseNpgsql(PGDbContext.CreateDataSource(conStr));
 var context = new PGDbContext(optionsBuilder.Options);
+//context.Database.EnsureDeleted();
 context.Database.EnsureCreated();
 context.Database.Migrate();
 
 var old = context.TestTable.ToList();
-context.TestTable.RemoveRange(old);
+//context.TestTable.RemoveRange(old);
 
-context.TestTable.Add(
+context.TestTable.AddRange(
     new TestTable
     {
         Name = "test",
@@ -36,6 +37,14 @@ context.TestTable.Add(
                 new JsonData { Name = "z", Value = "3" }
             ]
         }
+    },
+    new TestTable
+    {
+        Name = "test",
+        JsonData = new TestTableJson
+        {
+            Code = "x",
+        }
     }
 );
 context.SaveChanges();
@@ -44,24 +53,27 @@ context.SaveChanges();
 var testQuery = context.TestTable
     .Any(x => x.JsonData.Data
         .Any(y => y.Name == "x"));
-
 Console.WriteLine("Done!");
-
-Debugger.Break();
+//Debugger.Break();
 
 public class PGDbContext : DbContext
 {
     public DbSet<TestTable> TestTable { get; set; }
 
-    public PGDbContext(DbContextOptions<PGDbContext> options) : base(options)
+    public PGDbContext(DbContextOptions<PGDbContext> options) :
+        base(options)
     {
     }
 
     public static NpgsqlDataSource CreateDataSource(string connectionString = null)
     {
         var dataSourceBuilder = new NpgsqlDataSourceBuilder(connectionString);
+        //dataSourceBuilder.EnableDynamicJson();
+        // dataSourceBuilder.ConfigureJsonOptions(new JsonSerializerOptions
+        // {
+        //     Converters = { new EnumToStringConverter<RowStatus>() }
+        // });
         dataSourceBuilder.MapEnum<RowStatus>();
-        dataSourceBuilder.EnableDynamicJson();
         return dataSourceBuilder.Build();
     }
 
@@ -72,8 +84,8 @@ public class PGDbContext : DbContext
             .OwnsOne(t => t.JsonData, x =>
             {
                 x.ToJson();
-                x.OwnsMany(t => t.Data)
-                    .Property(t => t.RowStatus).HasConversion(new EnumToStringConverter<RowStatus>());
+                x.Property(t => t.RowStatus).HasConversion(new EnumToStringConverter<RowStatus>());
+                x.OwnsMany(t => t.Data).Property(t => t.RowStatus).HasConversion(new EnumToStringConverter<RowStatus>());
             });
         base.OnModelCreating(modelBuilder);
     }
@@ -81,9 +93,9 @@ public class PGDbContext : DbContext
 
 public enum RowStatus
 {
-    active = 0,
-    passive = 1,
-    deleted = 2,
+    active = 1,
+    passive = 2,
+    deleted = 3,
 }
 
 public class TestTable
@@ -91,7 +103,6 @@ public class TestTable
     public int Id { get; set; }
     public string Name { get; set; }
 
-    [Column(TypeName = "jsonb")]
     public TestTableJson JsonData { get; set; }
 
     public RowStatus RowStatus { get; set; } = RowStatus.active;
@@ -101,7 +112,7 @@ public class TestTableJson
 {
     public string Code { get; set; }
 
-    public RowStatus? RowStatus { get; set; }
+    public RowStatus RowStatus { get; set; } = RowStatus.active;
     public List<JsonData> Data { get; set; }
 }
 
@@ -113,5 +124,5 @@ public class JsonData
     public DateTime? Date2 { get; set; }
 
     public List<int> TestIds { get; set; }
-    public RowStatus? RowStatus { get; set; }
+    public RowStatus RowStatus { get; set; }
 }
